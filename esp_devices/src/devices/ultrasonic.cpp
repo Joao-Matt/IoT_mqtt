@@ -1,3 +1,9 @@
+// Ultrasonic device: reads HC-SR04 and publishes distance over MQTT.
+// It subscribes to the Temperature station to adjust speed of sound.
+// Key config macros: TRIG_PIN/ECHO_PIN, HCSR04_TIMEOUT_US, DISTANCE_READ_PERIOD_MS.
+// It publishes to esp/<client_id>/distance_cm and prints calculation details to Serial.
+// State variables include lastDistanceCm, lastEchoDurationUs, and speedOfSoundMps.
+// This file is selected only in the esp32_Ultrasonic environment.
 #include "device.h"
 #include "common.h"
 

@@ -1,3 +1,9 @@
+// Standalone DHT11 test sketch for temperature and humidity.
+// Reads sensor values and prints two columns for Serial Plotter.
+// Uses DHTPIN and DHTTYPE macros for wiring and sensor model.
+// No MQTT or network code; this is purely for sensor validation.
+// Useful when diagnosing NaN readings or wiring mistakes.
+// Output format is: "<temp> <humidity>" once per loop.
 #include <Arduino.h>
 #include <DHT.h>
 

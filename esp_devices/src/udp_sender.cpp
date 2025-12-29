@@ -1,3 +1,9 @@
+// UDP sender: tiny helper for streaming IMU data off the ESP.
+// UDP_REMOTE_IP and UDP_REMOTE_PORT select the destination.
+// setupUDP initializes the remote IP and checks WiFi state.
+// sendIMUData formats pitch/roll and sends a UDP packet.
+// It intentionally drops data if WiFi is down to keep loop non-blocking.
+// This keeps IMU device code clean and focused on sensor math.
 #include "udp_sender.h"
 #include "common.h"
 #include <WiFiUdp.h>

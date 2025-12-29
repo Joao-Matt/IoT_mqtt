@@ -1,3 +1,9 @@
+// Shared declarations for WiFi/MQTT helpers used across ESP devices.
+// Defines default WiFi/MQTT settings that can be overridden via build flags.
+// Exposes the global WiFiClient and PubSubClient instances.
+// Declares connect/publish helpers implemented in common.cpp.
+// Keeping these in a header lets each device reuse the same network code.
+// This file is part of the "one project, many devices" architecture.
 #pragma once
 
 #include <Arduino.h>

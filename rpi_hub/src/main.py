@@ -1,3 +1,11 @@
+"""
+Raspberry Pi MQTT hub: subscribes to ESP topics and optionally drives LED color.
+It prints device status, lets you select a topic to view, and logs LED publishes.
+LED source can be ultrasonic MQTT distance or IMU UDP pitch/roll.
+Key settings include broker IP, LED hue range, and IMU UDP port.
+Use commands like list/devices/show/source to control output interactively.
+Designed for clarity and interview-ready explainability.
+"""
 import re
 import socket
 import threading

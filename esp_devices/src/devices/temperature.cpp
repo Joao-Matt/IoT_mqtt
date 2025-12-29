@@ -1,3 +1,9 @@
+// Temperature device: reads DHT11 and publishes temperature/humidity over MQTT.
+// It uses DHTPIN/DHTTYPE macros plus DHT_READ_PERIOD_MS and PUB_PERIOD_MS.
+// Topics are esp/<client_id>/temperature_c and esp/<client_id>/humidity.
+// A retained status message is published on esp/<client_id>/status.
+// State variables include lastTemperatureC, lastHumidity, and timing counters.
+// This file is selected only in the esp32_Temperature environment.
 #include "device.h"
 #include "common.h"
 #include <DHT.h>

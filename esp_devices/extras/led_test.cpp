@@ -1,3 +1,9 @@
+// Standalone RGB LED test to validate wiring and pin assignment.
+// Cycles through red, green, blue, white, and off states.
+// Uses PIN_R/PIN_G/PIN_B macros for the RGB channels.
+// No MQTT or sensors are involved; purely hardware verification.
+// If colors are inverted, the LED may be common-anode.
+// Use this file when debugging LED brightness or wiring issues.
 #include <Arduino.h>
 
 #define PIN_R 25

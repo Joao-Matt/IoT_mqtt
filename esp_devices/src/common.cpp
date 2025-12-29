@@ -1,3 +1,9 @@
+// Shared networking helpers used by all ESP devices in this project.
+// It owns the global WiFi and MQTT clients used across device files.
+// connectWifiTimed/connectMqttTimed perform bounded retries to avoid blocking.
+// publishFloat formats numeric data into MQTT-friendly strings.
+// payloadIsNan standardizes how invalid "nan" payloads are detected.
+// This keeps device code focused on sensors instead of connectivity boilerplate.
 #include "common.h"
 
 WiFiClient wifiClient;

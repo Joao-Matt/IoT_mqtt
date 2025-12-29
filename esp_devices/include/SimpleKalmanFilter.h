@@ -1,3 +1,9 @@
+// Lightweight complementary filter used to smooth IMU angles.
+// This is not a full Kalman filter; it blends gyro and accel data.
+// alpha controls the blend: higher alpha favors gyro, lower favors accel.
+// update(gyroRateDps, accelAngleDeg, dtSeconds) returns the filtered angle.
+// Internal state stores the last angle and initialization flag.
+// This keeps IMU math simple and fast on the ESP32.
 #pragma once
 
 class SimpleKalman {

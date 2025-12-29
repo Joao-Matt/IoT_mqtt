@@ -1,3 +1,9 @@
+// Standalone HC-SR04 test sketch for basic distance measurement.
+// Triggers the sensor, measures echo pulse, and prints distance.
+// Uses TRIG_PIN and ECHO_PIN constants for wiring reference.
+// No MQTT or temperature compensation, just raw distance output.
+// Use this for quick sensor checks before integrating with MQTT code.
+// Expect values to update roughly every 100 ms.
 #include <Arduino.h>
 
 const int TRIG_PIN = 5;

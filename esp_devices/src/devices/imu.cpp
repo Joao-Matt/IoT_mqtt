@@ -1,3 +1,9 @@
+// IMU device: reads MPU6050 over I2C and computes pitch/roll.
+// It uses a complementary filter (SimpleKalman) to fuse gyro + accel.
+// Data is sent via UDP using udp_sender to a configurable IP/port.
+// Key state variables are pitch, roll, lastMicros, and lastPrint.
+// This file does not publish MQTT; it streams via UDP for low latency.
+// This file is selected only in the esp32_IMU environment.
 #include "device.h"
 #include "common.h"
 #include <Wire.h>

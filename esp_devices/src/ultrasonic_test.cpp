@@ -1,3 +1,9 @@
+// Standalone HC-SR04 test to isolate wiring and sensor health.
+// Uses TRIG_PIN/ECHO_PIN and prints raw echo duration and distance.
+// If echo_us=0, the sensor is not responding or wiring/power is wrong.
+// GPIO loopback mode can test ESP pins without the sensor.
+// This sketch avoids MQTT so debugging is purely hardware-focused.
+// Use this when the main ultrasonic firmware only returns NaN.
 #include <Arduino.h>
 
 const int TRIG_PIN = 5;

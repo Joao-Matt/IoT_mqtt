@@ -1,3 +1,9 @@
+// LED device: listens for RGB commands on the LED topic and drives PWM pins.
+// It supports common-anode inversion via LED_COMMON_ANODE and PWM config via LEDC_*.
+// LED_TOPIC expects payloads like "r,g,b" or "nan" to blink blue.
+// Status is published to esp/<client_id>/status on reconnect.
+// State variables track blink timing and subscription status.
+// This file is selected only in the esp32_LED environment.
 #include "device.h"
 #include "common.h"
 
