@@ -61,6 +61,10 @@
 #define DISTANCE_READ_PERIOD_MS 100
 #endif
 
+#ifndef DISTANCE_LOG_PERIOD_MS
+#define DISTANCE_LOG_PERIOD_MS 200
+#endif
+
 #ifndef PUB_PERIOD_MS
 #define PUB_PERIOD_MS 500
 #endif
@@ -86,6 +90,18 @@ DHT dht(DHTPIN, DHTTYPE);
 
 #ifndef ECHO_PIN
 #define ECHO_PIN 18
+#endif
+
+#ifndef HCSR04_TIMEOUT_US
+#define HCSR04_TIMEOUT_US 30000
+#endif
+
+#ifndef TEMP_SOURCE_STATION
+#define TEMP_SOURCE_STATION "Temperature"
+#endif
+
+#ifndef TEMP_SOURCE_METRIC
+#define TEMP_SOURCE_METRIC "temperature_c"
 #endif
 #endif
 
@@ -132,12 +148,20 @@ uint32_t lastDhtMs = 0;
 
 #if HAS_HCSR04
 uint32_t lastDistanceMs = 0;
+uint32_t lastDistanceLogMs = 0;
+float speedOfSoundMps = 343.0f;
+float speedCmPerUs = 0.0343f;
+bool tempValid = false;
+long lastEchoDurationUs = 0;
 #endif
 
 char topicStatus[64];
 char topicDistance[64];
 char topicTemperature[64];
 char topicHumidity[64];
+#if HAS_HCSR04
+char topicTempIn[64];
+#endif
 
 void setupTopics()
 {
@@ -145,6 +169,9 @@ void setupTopics()
   snprintf(topicDistance, sizeof(topicDistance), "esp/%s/distance_cm", MQTT_CLIENT_ID);
   snprintf(topicTemperature, sizeof(topicTemperature), "esp/%s/temperature_c", MQTT_CLIENT_ID);
   snprintf(topicHumidity, sizeof(topicHumidity), "esp/%s/humidity", MQTT_CLIENT_ID);
+#if HAS_HCSR04
+  snprintf(topicTempIn, sizeof(topicTempIn), "esp/%s/%s", TEMP_SOURCE_STATION, TEMP_SOURCE_METRIC);
+#endif
 }
 
 void publishFloat(const char *topic, float value)
@@ -156,6 +183,15 @@ void publishFloat(const char *topic, float value)
     snprintf(msg, sizeof(msg), "%.2f", value);
   }
   mqttClient.publish(topic, msg);
+}
+
+bool payloadIsNan(const char *text)
+{
+  if (!text || !*text) return true;
+  char c0 = (char)tolower((unsigned char)text[0]);
+  char c1 = (char)tolower((unsigned char)text[1]);
+  char c2 = (char)tolower((unsigned char)text[2]);
+  return (c0 == 'n' && c1 == 'a' && c2 == 'n');
 }
 
 #if HAS_LED
@@ -214,18 +250,58 @@ void handleLedBlink(uint32_t now)
     }
   }
 }
+#endif
 
-bool payloadIsNan(const char *text)
+#if HAS_HCSR04
+void updateSpeedFromTemp(float tempC)
 {
-  if (!text || !*text) return true;
-  char c0 = (char)tolower((unsigned char)text[0]);
-  char c1 = (char)tolower((unsigned char)text[1]);
-  char c2 = (char)tolower((unsigned char)text[2]);
-  return (c0 == 'n' && c1 == 'a' && c2 == 'n');
+  // Speed of sound in air ~= 331.3 + 0.606 * T(C) m/s
+  speedOfSoundMps = 331.3f + (0.606f * tempC);
+  speedCmPerUs = speedOfSoundMps / 10000.0f;
+  tempValid = true;
+  lastTemperatureC = tempC;
+  Serial.printf(
+      "temp_c=%.2f -> speed_mps=%.2f (speed_cm_per_us=%.5f)\n",
+      tempC,
+      speedOfSoundMps,
+      speedCmPerUs);
 }
+#endif
 
+#if HAS_LED || HAS_HCSR04
 void onMqttMessage(char *topic, byte *payload, unsigned int length)
 {
+#if HAS_HCSR04
+  if (strcmp(topic, topicTempIn) == 0) {
+    char buf[32];
+    size_t n = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
+    memcpy(buf, payload, n);
+    buf[n] = '\0';
+
+    const char *text = buf;
+    while (*text && isspace((unsigned char)*text)) {
+      text++;
+    }
+
+    float tempC = NAN;
+    if (!payloadIsNan(text)) {
+      tempC = strtof(text, nullptr);
+    }
+
+    if (isnan(tempC)) {
+      tempValid = false;
+      lastTemperatureC = NAN;
+      speedOfSoundMps = 343.0f;
+      speedCmPerUs = speedOfSoundMps / 10000.0f;
+      Serial.println("temp_c=nan -> using default speed_mps=343.0");
+    } else {
+      updateSpeedFromTemp(tempC);
+    }
+    return;
+  }
+#endif
+
+#if HAS_LED
   if (strcmp(topic, LED_TOPIC) != 0) return;
 
   char buf[32];
@@ -253,6 +329,7 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length)
   } else {
     setLedNanMode(true);
   }
+#endif
 }
 #endif
 
@@ -286,6 +363,9 @@ bool connectMqttTimed()
 #if HAS_LED
     mqttClient.subscribe(LED_TOPIC);
 #endif
+#if HAS_HCSR04
+    mqttClient.subscribe(topicTempIn);
+#endif
   }
   return mqttClient.connected();
 }
@@ -302,14 +382,15 @@ float readDistanceCm()
   digitalWrite(TRIG_PIN, LOW);
 
   // Echo pulse (timeout 30ms)
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  long duration = pulseIn(ECHO_PIN, HIGH, HCSR04_TIMEOUT_US);
+  lastEchoDurationUs = duration;
 
   // duration==0 => timeout / out of range
   if (duration <= 0) return NAN;
 
   // Convert to cm (speed of sound ~343 m/s)
   // ~29.1 us/cm roundtrip
-  float distance = duration / 29.1f / 2.0f;
+  float distance = (duration * speedCmPerUs) / 2.0f;
 
   // basic sanity clamp (HC-SR04 typical range ~2-400 cm)
   if (distance < 2.0f || distance > 400.0f) return NAN;
@@ -346,7 +427,7 @@ void setup()
 
   setupTopics();
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-#if HAS_LED
+#if HAS_LED || HAS_HCSR04
   mqttClient.setCallback(onMqttMessage);
 #endif
 
@@ -383,10 +464,19 @@ void loop()
   if (now - lastDistanceMs >= DISTANCE_READ_PERIOD_MS) {
     lastDistanceMs = now;
     lastDistanceCm = readDistanceCm();
-    if (isnan(lastDistanceCm)) {
-      Serial.println("distance_cm=nan");
-    } else {
-      Serial.printf("distance_cm=%.2f\n", lastDistanceCm);
+    if (now - lastDistanceLogMs >= DISTANCE_LOG_PERIOD_MS) {
+      lastDistanceLogMs = now;
+      if (isnan(lastDistanceCm)) {
+        Serial.println("distance_cm=nan");
+      } else {
+        Serial.printf(
+            "distance_cm=%.2f duration_us=%ld temp_c=%.2f speed_mps=%.2f speed_cm_us=%.5f calc=dur*speed_cm_us/2\n",
+            lastDistanceCm,
+            lastEchoDurationUs,
+            lastTemperatureC,
+            speedOfSoundMps,
+            speedCmPerUs);
+      }
     }
   }
 #endif
