@@ -1,4 +1,4 @@
- # rpi_hub
+# rpi_hub
 
 MQTT hub script for the Raspberry Pi. It subscribes to ESP topics, tracks device status, and can publish LED colors based on distance.
 
@@ -25,6 +25,8 @@ python3 /home/jacksparrow/code/new_mqtt_try.py
 - `devices` show ESP devices and status
 - `show <n|topic|station metric>` select a topic to display
 - `current` show current selection
+- `led` show the last LED payload sent
+- `led on|off` toggle LED publish logging
 - `q` stop showing the current topic
 - `exit` quit
 
@@ -32,3 +34,4 @@ python3 /home/jacksparrow/code/new_mqtt_try.py
 
 - The script only prints payloads for the selected topic.
 - It prints ESP status changes when it sees `esp/<station>/status`.
+- LED commands are published to the `LED` topic and logged when enabled.

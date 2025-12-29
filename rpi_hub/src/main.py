@@ -18,6 +18,7 @@ LED_PUBLISH_INTERVAL_SEC = 1.0
 latest_by_station = {}
 last_led_payload = None
 last_led_publish_ts = 0.0
+led_log_enabled = True
 topics_seen = set()
 stations_seen = set()
 station_status = {}
@@ -66,6 +67,7 @@ def on_message(client, userdata, msg):
     global last_led_publish_ts
     global selected_topic
     global initial_topic_list_printed
+    global led_log_enabled
     payload = msg.payload.decode("utf-8", errors="replace")
     parts = msg.topic.split("/")
 
@@ -106,6 +108,8 @@ def on_message(client, userdata, msg):
                 client.publish(LED_TOPIC, led_payload)
                 last_led_payload = led_payload
                 last_led_publish_ts = now_monotonic
+                if led_log_enabled:
+                    print(f"[{ts}] LED publish -> {led_payload}")
 
         if selected_topic and msg.topic == selected_topic:
             print(f"[{ts}] {msg.topic} -> {payload}")
@@ -170,7 +174,7 @@ def _print_station_metrics(station):
 # Interactive command loop for selecting and viewing topics.
 def _prompt_loop():
     global selected_topic
-    print("Commands: list, devices, show <n|topic|station metric>, current, q, exit")
+    print("Commands: list, devices, show <n|topic|station metric>, current, led, q, exit")
     while True:
         try:
             command = input("> ").strip()
@@ -184,6 +188,21 @@ def _prompt_loop():
             _print_topics()
         elif command == "devices":
             _print_devices()
+        elif command == "led":
+            if last_led_payload is None:
+                print("No LED payload sent yet.")
+            else:
+                print(f"Last LED payload: {last_led_payload}")
+        elif command.startswith("led "):
+            value = command.split(maxsplit=1)[1].strip().lower()
+            if value == "on":
+                led_log_enabled = True
+                print("LED publish logging enabled.")
+            elif value == "off":
+                led_log_enabled = False
+                print("LED publish logging disabled.")
+            else:
+                print("Usage: led on | led off")
         elif command == "q":
             selected_topic = None
             print("Topic output paused.")

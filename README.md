@@ -16,13 +16,25 @@ The Pi subscribes to ESP topics and can publish LED colors.
 
 ## ESP firmware (one codebase, multiple envs)
 
-All ESPs build from `esp_devices/src/main.cpp`, controlled by env flags.
+All ESPs share a common handler (`esp_devices/src/main.cpp`) and a common MQTT/WiFi layer
+(`esp_devices/src/common.cpp`). Each device has its own implementation file under
+`esp_devices/src/devices/`, selected per environment via `src_filter`.
+
+## Device architecture
+
+```
+[Temperature ESP] --(esp/Temperature/temperature_c)--> [MQTT Broker] --> [Ultrasonic ESP]
+       |                                                        |
+       |(esp/Temperature/humidity)                               |(esp/Ultrasonic/distance_cm)
+       v                                                        v
+  [MQTT Broker] <------------------------------- [Raspberry Pi hub] --(LED)--> [LED ESP]
+```
 
 ### Environments
 
 - `esp32_Ultrasonic`
   - `MQTT_CLIENT_ID="Ultrasonic"`
-  - `HAS_HCSR04=1`
+  - Source: `esp_devices/src/devices/ultrasonic.cpp`
   - Subscribes to `esp/Temperature/temperature_c`
   - Publishes:
     - `esp/Ultrasonic/status` (retained)
@@ -30,7 +42,7 @@ All ESPs build from `esp_devices/src/main.cpp`, controlled by env flags.
 
 - `esp32_Temperature`
   - `MQTT_CLIENT_ID="Temperature"`
-  - `HAS_DHT=1`
+  - Source: `esp_devices/src/devices/temperature.cpp`
   - Publishes:
     - `esp/Temperature/status` (retained)
     - `esp/Temperature/temperature_c`
@@ -38,7 +50,7 @@ All ESPs build from `esp_devices/src/main.cpp`, controlled by env flags.
 
 - `esp32_LED`
   - `MQTT_CLIENT_ID="LED"`
-  - `HAS_LED=1`
+  - Source: `esp_devices/src/devices/led.cpp`
   - Subscribes to:
     - `LED` (payload `r,g,b` or `nan` for blue blink)
 
@@ -59,6 +71,16 @@ distance_cm = duration_us * (speed_mps / 10000) / 2
 
 It prints the temperature and speed each time it updates, and logs distance
 with the current speed in the serial monitor.
+
+## Technologies used
+
+- **ESP32 + Arduino framework**: device firmware and GPIO control.
+- **PlatformIO**: build/upload per device environment.
+- **PubSubClient (ESP32)**: MQTT publish/subscribe on microcontrollers.
+- **Paho MQTT (Python)**: MQTT client on Raspberry Pi.
+- **Mosquitto broker**: MQTT server on the Pi (`localhost:1883`).
+- **DHT sensor library**: DHT11 temperature/humidity readings.
+- **MQTT topics**: structured as `esp/<station>/<metric>` plus `LED`.
 
 ## Secrets (WiFi/MQTT)
 
@@ -97,6 +119,8 @@ Interactive commands:
 - `list` - show topics
 - `devices` - show ESPs and status
 - `show <n|topic|station metric>` - select a topic
+- `led` - show last LED command sent
+- `led on|off` - toggle LED publish logging
 - `q` - stop showing the selected topic
 - `exit` - quit the program
 
