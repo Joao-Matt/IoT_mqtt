@@ -28,6 +28,9 @@ All ESPs share a common handler (`esp_devices/src/main.cpp`) and a common MQTT/W
        |(esp/Temperature/humidity)                               |(esp/Ultrasonic/distance_cm)
        v                                                        v
   [MQTT Broker] <------------------------------- [Raspberry Pi hub] --(LED)--> [LED ESP]
+                                          ^
+                                          | UDP (pitch/roll)
+                                       [IMU ESP]
 ```
 
 ### Environments
@@ -53,6 +56,11 @@ All ESPs share a common handler (`esp_devices/src/main.cpp`) and a common MQTT/W
   - Source: `esp_devices/src/devices/led.cpp`
   - Subscribes to:
     - `LED` (payload `r,g,b` or `nan` for blue blink)
+
+- `esp32_IMU`
+  - `MQTT_CLIENT_ID="IMU"`
+  - Source: `esp_devices/src/devices/imu.cpp`
+  - Reads MPU6050 over I2C and sends pitch/roll over UDP.
 
 ### Timing
 
@@ -81,6 +89,7 @@ with the current speed in the serial monitor.
 - **Mosquitto broker**: MQTT server on the Pi (`localhost:1883`).
 - **DHT sensor library**: DHT11 temperature/humidity readings.
 - **MQTT topics**: structured as `esp/<station>/<metric>` plus `LED`.
+- **MPU6050 (I2C)**: IMU source for pitch/roll (Ultrasonic uses MQTT, IMU uses UDP).
 
 ## Secrets (WiFi/MQTT)
 
@@ -95,6 +104,15 @@ Create a local `esp_devices/include/secrets.h` (not committed):
 
 Template: `esp_devices/include/secrets.h.example`
 
+## IMU UDP settings
+
+The IMU device sends UDP packets to the Pi. Defaults can be overridden at build time:
+
+```
+-D UDP_REMOTE_IP="192.168.1.174"
+-D UDP_REMOTE_PORT=9000
+```
+
 ## Build and upload (ESP32)
 
 From `esp_devices/`:
@@ -103,6 +121,7 @@ From `esp_devices/`:
 pio run -e esp32_Temperature -t upload
 pio run -e esp32_Ultrasonic -t upload
 pio run -e esp32_LED -t upload
+pio run -e esp32_IMU -t upload
 ```
 
 ## Raspberry Pi hub
@@ -112,7 +131,7 @@ Main script: `rpi_hub/src/main.py`
 - Subscribes to `esp/#`
 - Shows device status (`esp/<station>/status`)
 - Lets you choose which topic to display
-- Publishes LED colors based on distance
+- Publishes LED colors based on distance (spectrum gradient)
 
 Interactive commands:
 

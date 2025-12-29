@@ -1,4 +1,6 @@
 import re
+import socket
+import threading
 import time
 import paho.mqtt.client as mqtt
 
@@ -14,11 +16,22 @@ DISTANCE_SOURCE_STATION = "Ultrasonic"
 LED_MIN_CM = 5.0
 LED_MAX_CM = 200.0
 LED_PUBLISH_INTERVAL_SEC = 1.0
+LED_HUE_MIN = 0.0
+LED_HUE_MAX = 240.0
+LED_BRIGHTNESS = 1.0
+
+IMU_UDP_BIND = "0.0.0.0"
+IMU_UDP_PORT = 9000
+IMU_PITCH_MIN = -45.0
+IMU_PITCH_MAX = 45.0
 
 latest_by_station = {}
 last_led_payload = None
 last_led_publish_ts = 0.0
 led_log_enabled = True
+led_source = "ultrasonic"
+latest_imu = {"pitch": None, "roll": None}
+latest_imu_ts = 0.0
 topics_seen = set()
 stations_seen = set()
 station_status = {}
@@ -27,6 +40,74 @@ initial_topic_list_printed = False
 
 
 # -------- Callbacks --------
+# Ask user which sensor should drive the LED mapping.
+def _prompt_led_source():
+    while True:
+        try:
+            choice = input("LED source (imu/us) [us]: ").strip().lower()
+        except EOFError:
+            print("No stdin available, defaulting LED source to ultrasonic.")
+            return "ultrasonic"
+        if not choice or choice in ("us", "ultrasonic", "u"):
+            return "ultrasonic"
+        if choice in ("imu", "i"):
+            return "imu"
+        print("Please enter 'imu' or 'us'.")
+
+
+# Listen for IMU UDP packets and publish LED updates when enabled.
+def _start_imu_listener(client):
+    def _imu_thread():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((IMU_UDP_BIND, IMU_UDP_PORT))
+        while True:
+            data, _addr = sock.recvfrom(256)
+            text = data.decode("utf-8", errors="replace").strip()
+            pitch, roll = _parse_imu_payload(text)
+            if pitch is None or roll is None:
+                continue
+            _handle_imu_update(client, pitch, roll)
+
+    thread = threading.Thread(target=_imu_thread, daemon=True)
+    thread.start()
+
+
+# Parse "pitch=..,roll=.." into floats.
+def _parse_imu_payload(text):
+    match = re.findall(r"([-+]?[0-9]*\.?[0-9]+)", text)
+    if len(match) < 2:
+        return None, None
+    try:
+        pitch = float(match[0])
+        roll = float(match[1])
+    except ValueError:
+        return None, None
+    return pitch, roll
+
+
+# Publish LED updates using IMU data if IMU mode is active.
+def _handle_imu_update(client, pitch, roll):
+    global latest_imu
+    global latest_imu_ts
+    global led_source
+    global last_led_payload
+    global last_led_publish_ts
+    global led_log_enabled
+
+    latest_imu = {"pitch": pitch, "roll": roll}
+    latest_imu_ts = time.monotonic()
+    if led_source != "imu":
+        return
+
+    led_payload = _imu_to_led_payload(pitch, roll)
+    if led_payload != last_led_payload:
+        client.publish(LED_TOPIC, led_payload)
+        last_led_payload = led_payload
+        last_led_publish_ts = latest_imu_ts
+        if led_log_enabled:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{ts}] LED publish -> {led_payload}")
+
 # Handle initial MQTT connection and subscribe to wildcard topic.
 def on_connect(client, userdata, flags, reason_code, properties=None):
     if reason_code == 0:
@@ -54,11 +135,49 @@ def _distance_to_led_payload(distance_cm):
 
     t = (distance_cm - LED_MIN_CM) / (LED_MAX_CM - LED_MIN_CM)
     t = _clamp(t, 0.0, 1.0)
-
-    red = round(255 * (1.0 - t))
-    green = round(255 * t)
-    blue = 0
+    hue = LED_HUE_MIN + (LED_HUE_MAX - LED_HUE_MIN) * t
+    red, green, blue = _hsv_to_rgb(hue, 1.0, LED_BRIGHTNESS)
     return f"{red},{green},{blue}"
+
+
+def _imu_to_led_payload(pitch, roll):
+    if pitch is None or roll is None:
+        return "nan"
+
+    t = (pitch - IMU_PITCH_MIN) / (IMU_PITCH_MAX - IMU_PITCH_MIN)
+    t = _clamp(t, 0.0, 1.0)
+    hue = LED_HUE_MIN + (LED_HUE_MAX - LED_HUE_MIN) * t
+    red, green, blue = _hsv_to_rgb(hue, 1.0, LED_BRIGHTNESS)
+    return f"{red},{green},{blue}"
+
+
+def _hsv_to_rgb(hue, saturation, value):
+    hue = hue % 360.0
+    saturation = _clamp(saturation, 0.0, 1.0)
+    value = _clamp(value, 0.0, 1.0)
+
+    c = value * saturation
+    x = c * (1.0 - abs((hue / 60.0) % 2 - 1.0))
+    m = value - c
+
+    if hue < 60.0:
+        r, g, b = c, x, 0.0
+    elif hue < 120.0:
+        r, g, b = x, c, 0.0
+    elif hue < 180.0:
+        r, g, b = 0.0, c, x
+    elif hue < 240.0:
+        r, g, b = 0.0, x, c
+    elif hue < 300.0:
+        r, g, b = x, 0.0, c
+    else:
+        r, g, b = c, 0.0, x
+
+    return (
+        round((r + m) * 255),
+        round((g + m) * 255),
+        round((b + m) * 255),
+    )
 
 
 # Process incoming MQTT messages and update state/LED publishing.
@@ -68,6 +187,7 @@ def on_message(client, userdata, msg):
     global selected_topic
     global initial_topic_list_printed
     global led_log_enabled
+    global led_source
     payload = msg.payload.decode("utf-8", errors="replace")
     parts = msg.topic.split("/")
 
@@ -88,7 +208,11 @@ def on_message(client, userdata, msg):
                 station_status[station] = payload
                 print(f"[{ts}] ESP {station} status={payload}")
 
-        if station == DISTANCE_SOURCE_STATION and metric == "distance_cm":
+        if (
+            led_source == "ultrasonic"
+            and station == DISTANCE_SOURCE_STATION
+            and metric == "distance_cm"
+        ):
             payload_clean = payload.strip()
             if payload_clean.lower() == "nan":
                 led_payload = "nan"
@@ -174,7 +298,9 @@ def _print_station_metrics(station):
 # Interactive command loop for selecting and viewing topics.
 def _prompt_loop():
     global selected_topic
-    print("Commands: list, devices, show <n|topic|station metric>, current, led, q, exit")
+    print(
+        "Commands: list, devices, show <n|topic|station metric>, current, led, source, q, exit"
+    )
     while True:
         try:
             command = input("> ").strip()
@@ -203,6 +329,20 @@ def _prompt_loop():
                 print("LED publish logging disabled.")
             else:
                 print("Usage: led on | led off")
+        elif command.startswith("source"):
+            args = command.split(maxsplit=1)
+            if len(args) < 2:
+                print("Usage: source imu | source us")
+                continue
+            choice = args[1].strip().lower()
+            if choice in ("imu", "i"):
+                led_source = "imu"
+                print("LED source set to IMU.")
+            elif choice in ("us", "ultrasonic", "u"):
+                led_source = "ultrasonic"
+                print("LED source set to ultrasonic.")
+            else:
+                print("Usage: source imu | source us")
         elif command == "q":
             selected_topic = None
             print("Topic output paused.")
@@ -271,6 +411,7 @@ def _prompt_loop():
 # -------- Main --------
 # Main entrypoint: connect to MQTT and start prompt loop.
 def main():
+    global led_source
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2,
         client_id=CLIENT_ID,
@@ -279,11 +420,13 @@ def main():
     client.on_connect = on_connect
     client.on_message = on_message
 
+    led_source = _prompt_led_source()
     print(f"Connecting to MQTT broker at {BROKER_IP}:{BROKER_PORT} ...")
     client.connect(BROKER_IP, BROKER_PORT, keepalive=60)
 
     try:
         client.loop_start()
+        _start_imu_listener(client)
         _prompt_loop()
     except KeyboardInterrupt:
         pass
